@@ -2,7 +2,7 @@
 
 # Ensemble_Classification_of_Employee_Attrition
 
->The goal of this project was to predict empoloyees leaving a particular company due to retirement or resignation. I first normalized, standardized, or dummy coded necessary features. Then, I used the ROSE package to create synthetic data to balance the "yes" and "no" attrition levels. My model consisted of three meta-algorithms - bagging, boosting, and stacking, which achieved an accuracy of 87.6%. Afterwards, I predicted incomes using linear regression, and explored other areas of the dataset, including the differences in incomes by gender.
+>The goal of this project was to predict employees leaving a particular company due to retirement or resignation. I first normalized, standardized, or dummy coded necessary features. Then, I used the ROSE package to create synthetic data to balance the "yes" and "no" attrition levels. My model consisted of three meta-algorithms - bagging, boosting, and stacking, which achieved an accuracy of 87.6%. Afterwards, I predicted incomes using linear regression, and explored other areas of the dataset, including the differences in incomes by gender.
 
 
 ---
@@ -21,13 +21,13 @@
 <a name="Predicting_Attrition"></a>  
 
 ## Predicting Attrition Summary
-The dataset consisted of 36 total variables, with a mix of both quantitative and qualitative types. Some initial findings included: no null values, several features of all one level, and correlations up to .95 (monthly income and job level). Job roles produced large differences in attrition rates with the highest being 45% from the sales reps, and lowest at 2% from the director roles.  
+The dataset consisted of 36 total variables, with a mix of both quantitative and qualitative types. Some initial findings included: no null values, several features of all one level, and correlations up to .95 (from monthly income and job level). "Job roles" produced large differences in attrition rates with the highest being 45% from the sales reps and lowest at 2% from the director roles.  
 
 730 rows consisted of "no" for attrition and 140 rows of "yes". When I first ran my model, the accuracy for just the "yes" attrition level was less than 50%. I then integrated the ROSE package which allowed me to oversample the "yes" class by generating synthetic data based off feature space similarities. ROSE uses a smoothed-bootstrap approach.  
 
-For my ensemble model, I used hard voting to make the final choice between my three meta-algorithms - bagging, boosting, and stacking. The first algorithm used random forest, followed by C5.0. The third algorithm, stacking, used naive_bayes, knn, rpart, svmRadial, and glmnet from the Caret package. My ensemble model produced an accuracy of 87.6%, with a 88.2% sensitivity and 85% specificity. Some of the top features included JobIsaDirector, JobIsSalesRep, Divorce, JobInvolvementScore, and Overtime. 
+For my ensemble model, I used hard voting to make the final decision between my three meta-algorithms - bagging, boosting, and stacking. The first algorithm used random forest, followed by C5.0. The third algorithm, stacking, used naive_bayes, knn, rpart, svmRadial, and glmnet from the Caret package. My ensemble model produced an accuracy of 87.6%, with a 88.2% sensitivity and 85% specificity. Some of the top features included JobIsaDirector, JobIsSalesRep, Divorce, JobInvolvementScore, and Overtime. 
 
-This plot illustrates some key relationships regarding attrition and job roles  
+This plot illustrates some interesting relationships regarding attrition and job roles  
 
 ![Job Roles and Attrition](https://github.com/MichaelMazel/Ensemble_Classification_of_Employee_Attrition/blob/main/Employee_Attrition_Prediction_files/figure-gfm/unnamed-chunk-55-1.png)
 
