@@ -1,0 +1,797 @@
+---
+title: "Employee_Attrition_Prediction"
+author: "Michael Mazel"
+date: "3/24/2021"
+output: rmarkdown::github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyr)
+library(dplyr)
+library(PerformanceAnalytics)
+library(pivottabler)
+library(ggplot2)
+```
+
+Import data
+```{r}
+employee <- read.csv(file = 'Data_Sets\\CaseStudy2-data.csv', header = T)
+```
+
+# Data Exploration of Quantitative Variables   
+
+Check for null values and see variable types
+```{r}
+colSums(is.na(employee))
+str(employee)
+```
+No null values found.  
+
+Select quantitative variables.
+```{r}
+quant <- subset(employee, select=-c(BusinessTravel,Department,EducationField,Gender,JobRole,MaritalStatus,Over18,OverTime))
+```
+
+```{r}
+summary(quant)
+```
+Initial findings: performance ratings only fall between 3 and 4. Employee count and standard hours returned only 1 unique value each. Also, EmployeeNumber should not be used as a predictor in our model.
+
+We will investigate feature similarities. First, check out features that are likely related to pay.
+```{r}
+quant2 <- quant %>% select(DailyRate,HourlyRate,MonthlyIncome,MonthlyRate,PercentSalaryHike,StockOptionLevel,Education,JobLevel)
+chart.Correlation(quant2, histogram=TRUE, pch=19)
+```
+   
+There aren't any moderate or strong correlations between any of these variables, except for Job Level and Monthly Income, with a massive .95 correlation. Next, let's investigate time related variables
+```{r}
+quant2 <- quant %>% select(Age,NumCompaniesWorked,TotalWorkingYears,TrainingTimesLastYear,YearsAtCompany,YearsSinceLastPromotion,YearsWithCurrManager)
+chart.Correlation(quant2, histogram=TRUE, pch=19)
+```
+   
+YearsWithCurrentManager produces a high correlation with YearsAtCompany. This may be a redundant feature
+```{r}
+quant2 <- quant %>% select(EnvironmentSatisfaction,JobInvolvement,JobSatisfaction,PerformanceRating,RelationshipSatisfaction,WorkLifeBalance,DistanceFromHome)
+chart.Correlation(quant2, histogram=TRUE, pch=19)
+```
+    
+Surprisingly, there are minimal relationships between these variables. Just to ensure we aren't missing any relationships, we will investigate all relationships and their correlations
+```{r}
+quant2 <- subset(quant, select=-c(Attrition,ID,StandardHours,EmployeeCount))
+chart.Correlation(quant2, histogram=F, pch=19)
+```
+    
+The highest correlation by far is still between Job Level and MonthlyIncome
+
+```{r}
+quant %>% group_by(Attrition) %>% summarise(count = n())
+```
+Having large disparity between the levels in the response variable usually impacts a classification model's accuracy. Specifically, the level with the lower number of responses (in this case "Yes") is difficult to predict. We will address this by creating synthetic data later with the ROSE package.   
+
+
+# Feature Selection
+## Normalize Data
+We will refer to the histograms above to normalize data if necessary. We will focus on skewed variables that do not have limited number of levels. I made a comment next to the transformation that I felt best meet the linear regression assumptions
+```{r}
+employee_norm <- employee %>% mutate(MonthlyIncomeLog = log(MonthlyIncome)) #best
+employee_norm <- employee_norm %>% mutate(MonthlyIncomeSqrt = sqrt(MonthlyIncome))
+employee_norm <- employee_norm %>% mutate(MonthlyIncomeCube = (MonthlyIncome)^(1/3))
+employee_norm <- employee_norm %>% mutate(MonthlyIncomeRecip = 1/(MonthlyIncome))
+par(mfrow=c(2,2))
+hist(employee_norm$MonthlyIncomeLog)
+hist(employee_norm$MonthlyIncomeSqrt)
+hist(employee_norm$MonthlyIncomeCube)
+hist(employee_norm$MonthlyIncomeRecip)
+```
+```{r}
+employee_norm <- employee %>% mutate(PercentSalaryHikeLog = log(PercentSalaryHike))
+employee_norm <- employee_norm %>% mutate(PercentSalaryHikeSqrt = sqrt(PercentSalaryHike)) #best
+employee_norm <- employee_norm %>% mutate(PercentSalaryHikeCube = (PercentSalaryHike)^(1/3))
+employee_norm <- employee_norm %>% mutate(PercentSalaryHikeRecip = 1/(PercentSalaryHike))
+par(mfrow=c(2,2))
+hist(employee_norm$PercentSalaryHikeLog)
+hist(employee_norm$PercentSalaryHikeSqrt)
+hist(employee_norm$PercentSalaryHikeCube)
+hist(employee_norm$PercentSalaryHikeRecip)
+```
+```{r}
+employee_norm <- employee %>% mutate(TotalWorkingYearsLog = log(TotalWorkingYears))
+employee_norm <- employee_norm %>% mutate(TotalWorkingYearsSqrt = sqrt(TotalWorkingYears)) #best
+par(mfrow=c(1,2))
+hist(employee_norm$TotalWorkingYearsLog)
+hist(employee_norm$TotalWorkingYearsSqrt)
+```
+
+```{r}
+employee_norm <- employee %>% mutate(YearsWithCurrManagerLog = log(YearsWithCurrManager))
+employee_norm <- employee_norm %>% mutate(YearsWithCurrManagerSqrt = sqrt(YearsWithCurrManager))
+employee_norm <- employee_norm %>% mutate(YearsWithCurrManagerCube = (YearsWithCurrManager)^(1/3))
+employee_norm <- employee_norm %>% mutate(YearsWithCurrManagerRecip = 1/(YearsWithCurrManager))
+par(mfrow=c(2,2))
+hist(employee_norm$YearsWithCurrManagerLog)
+hist(employee_norm$YearsWithCurrManagerSqrt)
+hist(employee_norm$YearsWithCurrManagerCube)
+hist(employee_norm$YearsWithCurrManagerRecip)
+# none look great, we will keep as is
+```
+
+```{r}
+employee_norm <- employee %>% mutate(YearsSinceLastPromotionLog = log(YearsSinceLastPromotion))
+employee_norm <- employee_norm %>% mutate(YearsSinceLastPromotionSqrt = sqrt(YearsSinceLastPromotion))
+employee_norm <- employee_norm %>% mutate(YearsSinceLastPromotionCube = (YearsSinceLastPromotion)^(1/3))
+employee_norm <- employee_norm %>% mutate(YearsSinceLastPromotionRecip = 1/(YearsSinceLastPromotion))
+par(mfrow=c(2,2))
+hist(employee_norm$YearsSinceLastPromotionLog)
+hist(employee_norm$YearsSinceLastPromotionSqrt)
+hist(employee_norm$YearsSinceLastPromotionCube)
+hist(employee_norm$YearsSinceLastPromotionRecip)
+# none look great, we will keep as is
+```
+```{r}
+employee_norm <- employee %>% mutate(DistanceFromHomeLog = log(DistanceFromHome)) #best
+employee_norm <- employee_norm %>% mutate(DistanceFromHomeSqrt = sqrt(DistanceFromHome))
+employee_norm <- employee_norm %>% mutate(DistanceFromHomeCube = (DistanceFromHome)^(1/3))
+employee_norm <- employee_norm %>% mutate(DistanceFromHomeRecip = 1/(DistanceFromHome))
+par(mfrow=c(2,2))
+hist(employee_norm$DistanceFromHomeLog)
+hist(employee_norm$DistanceFromHomeSqrt)
+hist(employee_norm$DistanceFromHomeCube)
+hist(employee_norm$DistanceFromHomeRecip)
+```
+   
+Add the transformed variables to our main df and remove the original versions, along with employeeNumber and the single level features
+```{r}
+quant <- quant %>% mutate(MonthlyIncomeLog = log(MonthlyIncome))
+quant <- quant %>% mutate(PercentSalaryHikeSqrt = sqrt(PercentSalaryHike)) 
+quant <- quant %>% mutate(TotalWorkingYearsSqrt = sqrt(TotalWorkingYears)) 
+quant <- quant %>% mutate(DistanceFromHomeLog = log(DistanceFromHome))
+quant <- subset(quant, select = -c(MonthlyIncome, PercentSalaryHike, TotalWorkingYears, DistanceFromHome, StandardHours, EmployeeCount, EmployeeNumber))
+```
+
+## Standardize/Scale Variables
+```{r}
+quant_std <- quant
+for(num in 4:25) {      
+  quant_std[ , num] <- scale(quant_std[ , num])
+}
+quant_std$Age <- scale(quant_std$Age)
+```
+
+Perform a quick investigation of the differences in each of the variables' means according to the attrition group it belongs to.
+```{r}
+aggregate(quant_std[, c(2,4:25)], list(quant_std$Attrition), FUN = mean)
+```
+Variables that returned around a .1 difference or less between means include: DailyRate, HourlyRate, MonthlyRate, PercentSalaryHikeSqrt, PerformanceRating, YearsSinceLastPromotion. Therefore, these are likely poor predictors of attrition, but we will keep them because our model with automatically perform variable selection (e.g. bagging)
+
+
+# Data Exploration of Categorical Variables  
+Check for unique levels of categorical variables. We will then dummy code these to our dataframe
+```{r}
+cat <- employee %>% select(Attrition,BusinessTravel,Department,EducationField,Gender,JobRole,MaritalStatus,Over18,OverTime,ID)
+```
+
+```{r}
+print("ATTRITION:")
+unique(employee$Attrition)
+print("BUS_TRAVEL:")
+unique(employee$BusinessTravel)
+print("DEPT:")
+unique(employee$Department)
+print("EDU:")
+unique(employee$EducationField)
+print("GENDER:")
+unique(employee$Gender)
+print("JOB_ROLE:")
+unique(employee$JobRole)
+print("MARRIED:")
+unique(employee$MaritalStatus)
+print("Over18:")
+unique(employee$Over18)
+print("OVERTIME:")
+unique(employee$OverTime)
+```
+Assess feature importance
+```{r}
+# rename categories so they are more compact in the pivot table
+cat$JobRole[cat$JobRole == "Sales Executive"] <- "SaleExec"
+cat$JobRole[cat$JobRole == "Research Director"] <- "RsrDir"
+cat$JobRole[cat$JobRole == "Manufacturing Director"] <- "ManDir"
+cat$JobRole[cat$JobRole == "Research Scientist"] <- "RsrSci"
+cat$JobRole[cat$JobRole == "Sales Representative"] <- "SaleRep"
+cat$JobRole[cat$JobRole == "Healthcare Representative"] <- "HCRep"
+cat$JobRole[cat$JobRole == "Manager"] <- "Mgr"
+cat$JobRole[cat$JobRole == "Human Resources"] <- "HR"
+cat$JobRole[cat$JobRole == "Laboratory Technician"] <- "LabTec"
+cat$EducationField[cat$EducationField == "Life Sciences"] <- "LifeSci"
+cat$EducationField[cat$EducationField == "Medical"] <- "Med"
+cat$EducationField[cat$EducationField == "Marketing"] <- "Mktg"
+cat$EducationField[cat$EducationField == "Technical Degree"] <- "TechDeg"
+cat$EducationField[cat$EducationField == "Human Resources"] <- "HR"
+
+# pivot tables
+qpvt(cat, "Attrition", "BusinessTravel", "n()")
+qpvt(cat, "Attrition", "Department", "n()")
+qpvt(cat, "Attrition", "EducationField", "n()")
+qpvt(cat, "Attrition", "Gender", "n()")
+qpvt(cat, "Attrition", "JobRole", "n()")
+qpvt(cat, "Attrition", "MaritalStatus", "n()")
+qpvt(cat, "Attrition", "Over18", "n()")
+qpvt(cat, "Attrition", "OverTime", "n()")
+```
+By comparing the proportions for either attrition level, we can estimate feature importance per category.  
+
+Important: JobRole, MaritalStatus, OverTime
+Somewhat: BusinessTravel, Department, EducationField
+Not so much: Gender   
+Not all due, because only 1 level: Over18  
+
+We will combine categories to slim down the number of dummy variables needed. If two categories can be logically clumped together (e.g. sales rep and sales exec) and they produce similar proportions for attrition, we will combine. 
+```{r}
+# EducationField
+cat <- cat %>% mutate(EduMedLife = ifelse(grepl("LifeSci", cat$EducationField), 1, ifelse(grepl("Med", cat$EducationField), 1, 0)))
+cat <- cat %>% mutate(EduMktg = ifelse(grepl("Mktg", cat$EducationField), 1,0))
+cat <- cat %>% mutate(EduTech = ifelse(grepl("TechDeg", cat$EducationField), 1,0))
+cat <- cat %>% mutate(EduOther = ifelse(grepl("Other", cat$EducationField), 1,0))
+  # EducationField is the reference group
+```
+
+```{r}
+# JobRole
+cat$JobDir <- 0
+cat$JobDir[cat$JobRole == "ManDir" | cat$JobRole == "RsrDir"] <- 1
+
+cat$JobResOrLab <- 0
+cat$JobResOrLab[cat$JobRole == "LabTec" | cat$JobRole == "RsrSci"] <- 1
+
+cat <- cat %>% mutate(JobMgr = ifelse(grepl("Mgr", cat$JobRole), 1,0))
+cat <- cat %>% mutate(JobHCRep = ifelse(grepl("HCRep", cat$JobRole), 1,0))
+cat <- cat %>% mutate(JobSaleRep = ifelse(grepl("SaleRep", cat$JobRole), 1,0))
+cat <- cat %>% mutate(JobSaleExec = ifelse(grepl("SaleExec", cat$JobRole), 1,0))
+  # HR is the reference group
+```
+
+```{r}
+# Department 
+cat <- cat %>% mutate(DepIsRD = ifelse(grepl("Research & Development", cat$Department), 1,0))
+cat <- cat %>% mutate(DepIsSale = ifelse(grepl("Sales", cat$Department), 1,0))
+  # Human Resources is the reference group
+
+# BusinessTravel
+cat <- cat %>% mutate(BusinessTravelRare = ifelse(grepl("Travel_Rarely", cat$BusinessTravel), 1,0))
+cat <- cat %>% mutate(BusinessTravelFreq = ifelse(grepl("Travel_Frequently", cat$BusinessTravel), 1,0))
+  # Non-Travel is the reference
+
+# MaritalStatus
+cat <- cat %>% mutate(CurrentlyMarried = ifelse(grepl("Married", cat$MaritalStatus), 1,0))
+cat <- cat %>% mutate(Divorced = ifelse(grepl("Divorced", cat$MaritalStatus), 1,0))
+
+# OverTime
+cat$OverTime[cat$OverTime == "No"] <- 0
+cat$OverTime[cat$OverTime == "Yes"] <- 1
+cat$OverTime <- as.integer(cat$OverTime)
+```
+
+Remove original,string columns
+```{r}
+cat <- subset(cat, select = -c(1,2,3,4,5,6,7,8))
+```
+
+# Model to Predict Attrition  
+We will merge the categorical and quantitative datasets, standardize the quantitative variables, then split into train and test
+```{r}
+library(caret)
+library(caretEnsemble)
+library(ggplot2)
+library(ROSE) #https://www.analyticsvidhya.com/blog/2016/03/practical-guide-deal-imbalanced-classification-problems/
+
+final_emp <- merge(cat, quant, by = "ID")
+
+for(num in 21:42) {      
+  final_emp[ , num] <- scale(final_emp[ , num])
+}
+final_emp$Age <- scale(final_emp$Age)
+final_emp[,21:42] <- sapply(final_emp[,21:42],as.numeric)
+final_emp$Age <- as.numeric(final_emp$Age)
+
+train_f = final_emp[1:652,]
+# ROSE allows us to oversample our minority class by generating synthetic data based off feature space similarities. It uses a smoothed-bootstrap approach
+train_f <- ROSE(Attrition ~ ., data = final_emp, seed = 123)$data
+test_f = final_emp[653:870,]
+```
+
+We can see our Attrition distribution is much more balanced now
+```{r}
+train_f %>% group_by(Attrition) %>% summarise(count = n())
+```
+    
+Our model will be an ensemble of three meta-algorithms - bagging, boosting, and stacking. We will then hard vote to make our final prediction.  
+
+For our first algorithm, bagging, we will use random forest. We will create a control variable to specify the sampling techniques. We will set the method to be cross validation.
+```{r}
+set.seed(123)
+control = trainControl(method="repeatedcv", number=10, repeats=5, savePredictions=TRUE, classProbs=TRUE)
+rf = train(Attrition~., data = train_f, method = 'rf', metric = 'Accuracy', trControl = control)
+rf
+```
+
+View feature importance for Random Forest
+```{r}
+plot(varImp(rf, scale = FALSE), main = 'Variable Importance for RandomForest')
+```
+    
+For our next algorithm, boosting, will use C5.0
+```{r}
+set.seed(123)
+C5 = train(Attrition~., data = train_f, method = 'C5.0', trControl = control)
+C5
+```
+
+View feature importance for C5.0
+```{r}
+plot(varImp(C5, scale = FALSE), main = 'Variable Importance for C5.0')
+```
+    
+Our last algorithm, stacking, will use 5 base models 
+```{r}
+set.seed(123)
+algorithms = c('naive_bayes', 'knn', 'rpart', 'svmRadial', 'glmnet')
+set.seed(123)
+models = caretList(Attrition~., data=train_f, trControl=control, methodList=algorithms)
+summary(models)
+```
+
+View each model's performance
+```{r}
+ans = resamples(models) #resamples helps to tabularize the results
+summary(ans)
+```
+Naive Bayes returned the highest median accuracy, while knn returned the lowest by a considerable margin.  
+
+The outputs from each of the base models will serve as our new features. We will use logistic regression to essentially highlight model strengths
+```{r}
+set.seed(123)
+stack.glm = caretStack(models, method="glm", metric="Accuracy", trControl=control)
+print(stack.glm)
+set.seed(123)
+```
+
+Finally, we will transform "yes" and "no" to 1 and 0. Then, create a dataframe with each prediction of the three meta-algorithms.
+```{r}
+num_pred = function(m){
+  temp = predict(m, test_f)
+  temp =  as.numeric(temp)
+  temp[temp==1] = 0
+  temp[temp==2] = 1
+  return(temp)
+}
+
+rf_pred = num_pred(rf)
+C5_pred = num_pred(C5)
+stack_pred = num_pred(stack.glm)
+
+all_pred = as.data.frame(cbind(rf_pred, C5_pred, stack_pred))
+head(all_pred)
+```
+
+Take the majority for our final choice. Then transform 1/0 back to Yes/No and assess our accuracy
+```{r}
+final_pred = as.numeric(apply(all_pred[,1:3],1,function(x) names(which.max(table(x)))))
+test_f <- test_f %>% mutate(AttritionBinary = ifelse(grepl("Yes", test_f$Attrition), 1,0))
+confusionMatrix(table(final_pred,test_f$AttritionBinary))
+```
+
+
+
+
+
+
+# Recreate Model to Predict Attrition 
+Now, we will reproduce the above steps except for a test set that does not list attrition. My professor will evaluate my final accuracy score with the true values.
+```{r}
+employeetest <- read.csv(file = 'Data_Sets\\CaseStudy2CompSet No Attrition.csv', header = T)
+employeetest$Attrition <- NA
+employeesubmissionraw <- rbind(employee, employeetest)
+```
+
+Add the transformed variables to our main df and remove the original versions, along with the 1 level features and employeeNumber
+```{r}
+employeesubmission <- employeesubmissionraw
+employeesubmission <- employeesubmission %>% mutate(MonthlyIncomeLog = log(MonthlyIncome))
+employeesubmission <- employeesubmission %>% mutate(PercentSalaryHikeSqrt = sqrt(PercentSalaryHike)) 
+employeesubmission <- employeesubmission %>% mutate(TotalWorkingYearsSqrt = sqrt(TotalWorkingYears)) 
+employeesubmission <- employeesubmission %>% mutate(DistanceFromHomeLog = log(DistanceFromHome))
+employeesubmission <- subset(employeesubmission, select = -c(BusinessTravel, Department, EducationField, Gender,JobRole, MaritalStatus, Over18, OverTime, MonthlyIncome, PercentSalaryHike, TotalWorkingYears, DistanceFromHome, StandardHours, EmployeeCount, EmployeeNumber))
+```
+
+```{r}
+catsub <- employeesubmissionraw %>% select(Attrition,BusinessTravel,Department,EducationField,Gender,JobRole,MaritalStatus,Over18,OverTime,ID)
+
+# rename catsubegories so they are more compact in the pivot table
+catsub$JobRole[catsub$JobRole == "Sales Executive"] <- "SaleExec"
+catsub$JobRole[catsub$JobRole == "Research Director"] <- "RsrDir"
+catsub$JobRole[catsub$JobRole == "Manufacturing Director"] <- "ManDir"
+catsub$JobRole[catsub$JobRole == "Research Scientist"] <- "RsrSci"
+catsub$JobRole[catsub$JobRole == "Sales Representative"] <- "SaleRep"
+catsub$JobRole[catsub$JobRole == "Healthcare Representative"] <- "HCRep"
+catsub$JobRole[catsub$JobRole == "Manager"] <- "Mgr"
+catsub$JobRole[catsub$JobRole == "Human Resources"] <- "HR"
+catsub$JobRole[catsub$JobRole == "Laboratory Technician"] <- "LabTec"
+catsub$EducationField[catsub$EducationField == "Life Sciences"] <- "LifeSci"
+catsub$EducationField[catsub$EducationField == "Medical"] <- "Med"
+catsub$EducationField[catsub$EducationField == "Marketing"] <- "Mktg"
+catsub$EducationField[catsub$EducationField == "Technical Degree"] <- "TechDeg"
+catsub$EducationField[catsub$EducationField == "Human Resources"] <- "HR"
+
+# EducationField
+catsub <- catsub %>% mutate(EduMedLife = ifelse(grepl("LifeSci", catsub$EducationField), 1, ifelse(grepl("Med", catsub$EducationField), 1, 0)))
+catsub <- catsub %>% mutate(EduMktg = ifelse(grepl("Mktg", catsub$EducationField), 1,0))
+catsub <- catsub %>% mutate(EduTech = ifelse(grepl("TechDeg", catsub$EducationField), 1,0))
+catsub <- catsub %>% mutate(EduOther = ifelse(grepl("Other", catsub$EducationField), 1,0))
+# EducationField is the reference group
+
+# JobRole
+catsub$JobDir <- 0
+catsub$JobDir[catsub$JobRole == "ManDir" | catsub$JobRole == "RsrDir"] <- 1
+
+catsub$JobResOrLab <- 0
+catsub$JobResOrLab[catsub$JobRole == "LabTec" | catsub$JobRole == "RsrSci"] <- 1
+
+catsub <- catsub %>% mutate(JobMgr = ifelse(grepl("Mgr", catsub$JobRole), 1,0))
+catsub <- catsub %>% mutate(JobHCRep = ifelse(grepl("HCRep", catsub$JobRole), 1,0))
+catsub <- catsub %>% mutate(JobSaleRep = ifelse(grepl("SaleRep", catsub$JobRole), 1,0))
+catsub <- catsub %>% mutate(JobSaleExec = ifelse(grepl("SaleExec", catsub$JobRole), 1,0))
+# HR is the reference group
+
+# Department 
+catsub <- catsub %>% mutate(DepIsRD = ifelse(grepl("Research & Development", catsub$Department), 1,0))
+catsub <- catsub %>% mutate(DepIsSale = ifelse(grepl("Sales", catsub$Department), 1,0))
+# Human Resources is the reference group
+
+# BusinessTravel
+catsub <- catsub %>% mutate(BusinessTravelRare = ifelse(grepl("Travel_Rarely", catsub$BusinessTravel), 1,0))
+catsub <- catsub %>% mutate(BusinessTravelFreq = ifelse(grepl("Travel_Frequently", catsub$BusinessTravel), 1,0))
+# Non-Travel is the reference
+
+# MaritalStatus has 3 catsubegories, so we will do make 2 dummy columns
+catsub <- catsub %>% mutate(CurrentlyMarried = ifelse(grepl("Married", catsub$MaritalStatus), 1,0))
+catsub <- catsub %>% mutate(Divorced = ifelse(grepl("Divorced", catsub$MaritalStatus), 1,0))
+
+# OverTime
+catsub$OverTime[catsub$OverTime == "No"] <- 0
+catsub$OverTime[catsub$OverTime == "Yes"] <- 1
+catsub$OverTime <- as.integer(catsub$OverTime)
+
+catsub <- subset(catsub, select = -c(1,2,3,4,5,6,7,8))
+```
+
+```{r}
+employeesubmission <- merge(catsub, employeesubmission, by = "ID")
+
+for(num in 21:42) {      
+  employeesubmission[ , num] <- scale(employeesubmission[ , num])
+}
+employeesubmission$Age <- scale(employeesubmission$Age)
+
+employeesubmission[,21:42] <- sapply(employeesubmission[,21:42],as.numeric)
+employeesubmission$Age <- as.numeric(employeesubmission$Age)
+
+
+train_f = employeesubmission[1:870,]
+train_f <- ROSE(Attrition ~ . -ID, data = employeesubmission, seed = 123)$data
+test_f = employeesubmission[871:1170,]
+```
+
+We can see our Attrition distribution is much more balanced now
+```{r}
+train_f %>% group_by(Attrition) %>% summarise(count = n())
+```
+Our model will be an ensemble of three meta-algorithms - bagging, boosting, and stacking. We will then hard vote to make our final prediction.  
+
+For our first algorithm, bagging, we will use random forest. We will create a control variable to specify the sampling techniques. We will set the method to be cross validation.
+```{r}
+set.seed(123)
+control = trainControl(method="repeatedcv", number=10, repeats=5, savePredictions=TRUE, classProbs=TRUE)
+rf = train(Attrition~., data = train_f, method = 'rf', metric = 'Accuracy', trControl = control)
+rf
+```
+
+View feature importance for Random Forest
+```{r}
+plot(varImp(rf, scale = FALSE), main = 'Variable Importance for RandomForest')
+```
+
+For our next algorithm, boosting, will use C5.0
+```{r}
+set.seed(123)
+C5 = train(Attrition~., data = train_f, method = 'C5.0', trControl = control)
+C5
+```
+
+View feature importance for C5.0
+```{r}
+plot(varImp(C5, scale = FALSE), main = 'Variable Importance for C5.0')
+```
+
+Our last algorithm, stacking, will use 5 base models 
+```{r}
+set.seed(123)
+algorithms = c('naive_bayes', 'knn', 'rpart', 'svmRadial', 'glmnet')
+set.seed(123)
+models = caretList(Attrition~., data=train_f, trControl=control, methodList=algorithms)
+summary(models)
+```
+
+View each model's performance
+```{r}
+ans = resamples(models) #resamples helps to tabularize the results
+summary(ans)
+```
+Naive Bayes returned the highest median accuracy, while knn returned the lowest by a considerable margin.  
+
+The outputs from each of the base models will serve as our new features. We will use logistic regression to essentially highlight model strengths
+```{r}
+set.seed(123)
+stack.glm = caretStack(models, method="glm", metric="Accuracy", trControl=control)
+print(stack.glm)
+set.seed(123)
+```
+
+Finally, we will transform "yes" and "no" to 1 and 0. Then, create a dataframe with each prediction of the three meta-algorithms.
+```{r}
+num_pred = function(m){
+  temp = predict(m, test_f)
+  temp =  as.numeric(temp)
+  temp[temp==1] = 0
+  temp[temp==2] = 1
+  return(temp)
+}
+
+rf_pred = num_pred(rf)
+C5_pred = num_pred(C5)
+stack_pred = num_pred(stack.glm)
+
+all_pred = as.data.frame(cbind(rf_pred, C5_pred, stack_pred))
+head(all_pred)
+```
+Take the majority for our final choice. Then transform 1/0 back to Yes/No and produce final predictions
+```{r}
+final_pred = as.numeric(apply(all_pred[,1:3],1,function(x) names(which.max(table(x)))))
+test_f <- test_f %>% mutate(AttritionBinary = ifelse(grepl("Yes", test_f$Attrition), 1,0))
+
+ID <- employeesubmissionraw$ID[871:1170]
+submission <- data.frame(ID, Attrition = final_pred)
+
+submission$Attrition[submission$Attrition == 1] <- "Yes"
+submission$Attrition[submission$Attrition == 0] <- "No"
+
+#write.csv(submission, "Data_Sets\\Case2PredictionsMazel_Salary.csv", row.names=F)
+```
+
+
+
+
+
+
+# Additional Exploration of Data
+
+Investigate number of male/females in the company and in leadership roles
+```{r}
+employee %>% group_by(Gender) %>% summarise(count = n())
+employee %>% filter(JobRole == "Manufacturing Director" | JobRole == "Research Director" | JobRole == "Manager") %>% group_by(Gender) %>% summarise(count = n())
+```
+Run a ttest to determine if there is a difference in monthly incomes between males and females in leadership roles
+```{r}
+employee_mgrdir <- employee %>% filter(JobRole == "Manufacturing Director" | JobRole == "Research Director" | JobRole == "Manager")
+
+employee_mgrdir %>% filter(Gender == "Female") %>% ggplot(aes(x = MonthlyIncome)) + geom_histogram(fill = "#F8766D") + ggtitle("Monthly Income of Females in Leadership Positions")
+employee_mgrdir %>% filter(Gender == "Male") %>% ggplot(aes(x = MonthlyIncome)) + geom_histogram(fill = "#00BFC4") + ggtitle("Monthly Income of Males in Leadership Positions")
+
+employee_mgrdir %>% filter(Gender == "Female") %>% ggplot(aes(x = MonthlyIncome)) + geom_histogram(aes(fill=JobRole)) + ggtitle("Monthly Income of Females in Leadership Positions")
+employee_mgrdir %>% filter(Gender == "Male") %>% ggplot(aes(x = MonthlyIncome)) + geom_histogram(aes(fill=JobRole)) + ggtitle("Monthly Income of Males in Leadership Positions")
+
+employee_mgrdir %>% ggplot(aes(x = MonthlyIncome, y = Gender)) + geom_boxplot(aes(fill=Gender)) + ggtitle("Boxplots of Monthly Incomes")
+```
+
+Not normally distributed, but no major skews present. Due to the central limit theorem and large sample sizes, safe to proceed. The genders display great equality of variance. Run a normal ttest
+```{r}
+t.test(employee_mgrdir$MonthlyIncome ~ employee_mgrdir$Gender)
+```
+
+
+```{r}
+employee %>% ggplot(aes(x = YearsAtCompany, y = MonthlyIncome)) + geom_jitter(aes(color=Attrition)) + facet_wrap(JobRole ~ .) + ggtitle("Job Roles - Years Working for the Company vs. Income")
+```
+
+
+
+
+
+# Monthly Income Prediction with Regression
+
+Import data
+```{r}
+employee_raw <- read.csv(file = 'Data_Sets\\CaseStudy2-data.csv', header = TRUE, stringsAsFactors = TRUE)
+employee <- employee_raw
+employee <- subset(employee, select = -c(EmployeeCount, StandardHours))
+```
+
+First, we will see if we meet our linear regression assumptions. If violated, perform log transformations and outlier removal where necessary. Afterwards, we will use LASSO for variable selection   
+
+Recall from part 1 of the analysis:  
+  No null values found.  
+  Employee count and standard hours returned only 1 unique value each  
+
+Select data that includes quantitative variables.
+````{r}
+quant <- subset(employee, select=-c(Attrition, BusinessTravel,Department,EducationField,Gender,JobRole,MaritalStatus,Over18,OverTime))
+```
+
+Check our linear regression assumptions first by looking at the correlations
+```{r}
+par(mfrow=c(2,3))
+plot(quant$DistanceFromHome, quant$MonthlyIncome)
+plot(quant$PercentSalaryHike, quant$MonthlyIncome)
+plot(quant$TotalWorkingYears, quant$MonthlyIncome)
+plot(quant$Age, quant$MonthlyIncome)
+plot(quant$DailyRate, quant$MonthlyIncome)
+plot(quant$Education, quant$MonthlyIncome)
+plot(quant$EnvironmentSatisfaction, quant$MonthlyIncome)
+plot(quant$HourlyRate, quant$MonthlyIncome)
+plot(quant$JobInvolvement, quant$MonthlyIncome)
+plot(quant$JobLevel, quant$MonthlyIncome)
+plot(quant$JobSatisfaction, quant$MonthlyIncome)
+plot(quant$MonthlyRate, quant$MonthlyIncome)
+plot(quant$NumCompaniesWorked, quant$MonthlyIncome)
+plot(quant$PerformanceRating, quant$MonthlyIncome)
+plot(quant$RelationshipSatisfaction, quant$MonthlyIncome)
+plot(quant$StockOptionLevel, quant$MonthlyIncome)
+plot(quant$TrainingTimesLastYear, quant$MonthlyIncome)
+plot(quant$WorkLifeBalance, quant$MonthlyIncome)
+plot(quant$WorkLifeBalance, quant$MonthlyIncome)
+plot(quant$YearsAtCompany, quant$MonthlyIncome)
+plot(quant$YearsInCurrentRole, quant$MonthlyIncome)
+plot(quant$YearsSinceLastPromotion, quant$MonthlyIncome)
+```
+   
+Let's see how the residuals look.
+```{r}
+fit = lm(data = quant, MonthlyIncome ~ . -ID)
+
+par(mfrow=c(2,2))
+plot(fit)
+```
+
+    
+We will log transform monthly income to see if it benefits the model and check the correlations again.
+```{r}
+quant <- quant %>% mutate(MonthlyIncomeLog = log(MonthlyIncome))
+
+par(mfrow=c(2,3))
+plot(quant$DistanceFromHome, quant$MonthlyIncomeLog)
+plot(quant$PercentSalaryHike, quant$MonthlyIncomeLog)
+plot(quant$TotalWorkingYears, quant$MonthlyIncomeLog)
+plot(quant$Age, quant$MonthlyIncomeLog)
+plot(quant$DailyRate, quant$MonthlyIncomeLog)
+plot(quant$Education, quant$MonthlyIncomeLog)
+plot(quant$EnvironmentSatisfaction, quant$MonthlyIncomeLog)
+plot(quant$HourlyRate, quant$MonthlyIncomeLog)
+plot(quant$JobInvolvement, quant$MonthlyIncomeLog)
+plot(quant$JobLevel, quant$MonthlyIncomeLog)
+plot(quant$JobSatisfaction, quant$MonthlyIncomeLog)
+plot(quant$MonthlyRate, quant$MonthlyIncomeLog)
+plot(quant$NumCompaniesWorked, quant$MonthlyIncomeLog)
+plot(quant$PerformanceRating, quant$MonthlyIncomeLog)
+plot(quant$RelationshipSatisfaction, quant$MonthlyIncomeLog)
+plot(quant$StockOptionLevel, quant$MonthlyIncomeLog)
+plot(quant$TrainingTimesLastYear, quant$MonthlyIncomeLog)
+plot(quant$WorkLifeBalance, quant$MonthlyIncomeLog)
+plot(quant$WorkLifeBalance, quant$MonthlyIncomeLog)
+plot(quant$YearsAtCompany, quant$MonthlyIncomeLog)
+plot(quant$YearsInCurrentRole, quant$MonthlyIncomeLog)
+plot(quant$YearsSinceLastPromotion, quant$MonthlyIncomeLog)
+```
+    
+Additionally, transform some explanatory variables to see if it improves the linear relationship with monthly income
+```{r}
+quant <- quant %>% mutate(DistanceFromHomeLog = log(DistanceFromHome))
+quant <- quant %>% mutate(TotalWorkingYearsLog = log(TotalWorkingYears))
+quant <- quant %>% mutate(AgeLog = log(Age))
+quant <- quant %>% mutate(JobLevelLog = log(JobLevel))
+quant <- quant %>% mutate(YearsAtCompanyLog = log(YearsAtCompany))
+quant <- quant %>% mutate(YearsSinceLastPromotionLog = log(YearsSinceLastPromotion))
+
+par(mfrow=c(2,3))
+plot(quant$DistanceFromHomeLog, quant$MonthlyIncomeLog)
+plot(quant$TotalWorkingYearsLog, quant$MonthlyIncomeLog)
+plot(quant$AgeLog, quant$MonthlyIncomeLog)
+plot(quant$JobLevelLog, quant$MonthlyIncomeLog)
+plot(quant$YearsAtCompanyLog, quant$MonthlyIncomeLog)
+plot(quant$YearsSinceLastPromotionLog, quant$MonthlyIncomeLog)
+```
+
+    
+JobLevel looks more linear when logged, but none of the rest seem to improve. Let's check the residuals again
+```{r}
+quant <- subset(quant, select = -c(DistanceFromHomeLog, TotalWorkingYearsLog, AgeLog, YearsAtCompanyLog, YearsSinceLastPromotionLog, JobLevel))
+
+fit = lm(data = quant, MonthlyIncome ~ . -ID -MonthlyIncomeLog)
+par(mfrow=c(2,2))
+plot(fit)
+
+fit = lm(data = quant, MonthlyIncomeLog ~ . -ID -MonthlyIncome)
+par(mfrow=c(2,2))
+plot(fit)
+```
+   
+The first set of plots uses the original monthly income response variable, and the second plot is with its logged transformation. The original version outperforms in the qq plot. The logged version, however, produces a flatter residual distribution line. We will stick with the logged version. The assumptions are not perfect, but we will proceed with caution.  
+
+Now, we will split the data into train and test sets. We will use LASSO for our variable selection.
+```{r}
+library(glmnet)
+# https://rstatisticsblog.com/data-science-in-action/machine-learning/lasso-regression/
+
+quant <- subset(quant, select = -c(MonthlyIncome))
+
+# Splitting the data into test and train
+set.seed(123)
+train = quant[1:652,]
+
+train_x = subset(train, select = -c(MonthlyIncomeLog))
+train_y = train$MonthlyIncomeLog
+train_x <- data.matrix(train_x) #cv.glmnet requires matrix, not a df
+
+lambda_seq <- 10^seq(2, -2, by = -.1)
+cv_output <- cv.glmnet(train_x, train_y)
+ 
+# identifying best lambda
+best_lam <- cv_output$lambda.min
+best_lam
+```
+See the selected features
+```{r}
+lasso_best_fit <- glmnet(train_x, train_y, lambda = best_lam)
+coef(lasso_best_fit)
+```
+
+See the model's performance and double check the assumptions
+```{r}
+fit <- lm(data = quant, MonthlyIncomeLog ~ JobLevelLog + TotalWorkingYears + JobInvolvement)
+summary(fit)
+par(mfrow=c(2,2))
+plot(fit)
+quant2 <- subset(quant, select = c(MonthlyIncomeLog, JobLevelLog, TotalWorkingYears, JobInvolvement))
+chart.Correlation(quant2, histogram=TRUE, pch=19)
+```
+   
+With the the three explanatory variables, the model produced a .8729 adjusted r squared. Let's see our model's RMSE on the test set.
+```{r}
+test <- quant[653:870,]
+test <- subset(test, select = c(JobLevelLog, TotalWorkingYears, JobInvolvement))
+test_predict <- exp(predict(fit, newdata = test)) # reverses the log transformation
+test_actual <- employee_raw$MonthlyIncome[653:870]
+
+predictions <- data.frame(test_actual, test_predict)
+
+library(Metrics)
+rmse(predictions$test_actual, predictions$test_predict)
+```
+
+Now, we will predict a test set that does not list monthly income. My professor will evaluate the final RMSE with the true values.
+```{r}
+employee_final <- read.csv(file = 'Data_Sets\\CaseStudy2CompSet No Salary.csv', header = TRUE, stringsAsFactors = TRUE)
+employee_final$MonthlyIncomeLog <- NA
+employee_final <- employee_final %>% mutate(TotalWorkingYearsLog = log(TotalWorkingYears))
+employee_final <- employee_final %>% mutate(JobLevelLog = log(JobLevel))
+employee_final <- employee_final %>% mutate(JobInvolvementLog = log(JobInvolvement))
+employee_final <- subset(employee_final, select = c(ID, MonthlyIncomeLog, JobLevelLog, TotalWorkingYears, JobInvolvement))
+
+test_predict <- exp(predict(fit, newdata = employee_final))
+test_predict <- data.frame(Id = employee_final$ID, MonthlyIncome = test_predict)
+
+#write.csv(test_predict, "Data_Sets\\Case2PredictionsMazel_Attrition.csv", row.names=F)
+```
+
